@@ -60,7 +60,7 @@ def constraint_target_return(weights, target_return):
     return portfolio_return(weights) - target_return
 
 # Range of target returns for which we will optimize the portfolio to build the efficient frontier
-target_returns = np.linspace(0, 0.4, 10000)
+target_returns = np.linspace(0, 0.4, 100)
 risk_values = []
 return_values = []
 
