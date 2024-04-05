@@ -1,0 +1,130 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+
+# Extracted data from the image
+expected_returns = np.array([0.095, 0.101, 0.091, 0.109, 0.14, 0.157])  # Expected returns
+
+esg_ratings = np.array([
+    85, # Gov. bonds
+    60, # BAA bonds
+    92, # AAA Bonds
+    75, # growth stocks
+    60, # Int. Stocks
+    70, # Value stocks
+])/100
+
+sigma_matrix = np.array([
+    [0.135, 0, 0, 0, 0, 0],  # Government Bonds
+    [0.082, 0.056, 0, 0, 0, 0],  # Corporate Bonds, Baa
+    [0.091, 0.027, 0.024, 0, 0, 0],  # Corporate Bonds, Aaa
+    [0.037, 0.063, 0.003, 0.165, 0, 0],  # Growth Stocks
+    [0.036, 0.068, 0.003, 0.117, 0.073, 0],  # International Stocks
+    [0.036, 0.077, 0.001, 0.104, 0.068, 0.059],  # Value Stocks
+])
+
+
+# variance covariance matrix
+variance_covariance_matrix = sigma_matrix @ sigma_matrix.T
+
+# Calculate standard deviations (sqrt of variances)
+std_devs = np.sqrt(np.diag(variance_covariance_matrix))
+
+# Updated parameters for optimization
+risk_free_rate = 0.05
+
+
+risk_aversion = 2
+sustainability_inclination = 0.1
+
+# Manager distribution constraints
+manager_distribution = [[1, 1, 1, 0, 0, 0], [0, 0, 0, 1, 1, 1]]
+
+# Functions
+def portfolio_return(weights, expected_returns):
+    return np.dot(weights, expected_returns)
+
+def portfolio_risk(weights, variance_covariance_matrix):
+    return np.sqrt(portfolio_variance(weights, variance_covariance_matrix))
+
+def portfolio_variance(weights, variance_covariance_matrix):
+    return np.dot(weights.T, np.dot(variance_covariance_matrix, weights))
+
+def portfolio_sustainability(weights, esg_ratings):
+    return np.dot(weights, esg_ratings)
+
+# Objective function considering risk aversion and sustainability inclination
+risk_aversion = 2
+sustainability_inclination = 0.1
+def objective_function(weights):
+    return -(portfolio_return(weights, expected_returns) - (risk_aversion / 2) * portfolio_risk(weights, variance_covariance_matrix)**2 + sustainability_inclination * portfolio_sustainability(weights, esg_ratings))
+
+# Optimization for each manager
+optimal_weights_corrected = []
+for manager in manager_distribution:
+    manager_bounds = [(0, 1) if manager[i] == 1 else (0, 0.000001) for i in range(len(manager))]
+    initial_guess = np.array([1/sum(manager) if m == 1 else 0 for m in manager])
+    
+    result = minimize(objective_function, initial_guess, method='SLSQP', bounds=manager_bounds, constraints={'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
+    
+    optimal_weights_corrected.append(result.x)
+
+optimal_weights = optimal_weights_corrected
+print(optimal_weights)
+# Generating the original efficient frontier
+target_returns = np.linspace(0.05, 0.4, 100)
+risk_values = []
+return_values = []
+
+for target_return in target_returns:
+    def objective_function(weights):
+        return portfolio_risk(weights, variance_covariance_matrix)  # Minimize risk
+
+    constraints = (
+        {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+        {'type': 'eq', 'fun': lambda x: portfolio_return(x, expected_returns) - target_return},
+    )
+    bounds = [(-10000, 10000) for _ in expected_returns]
+    initial_guess = np.array([1.0 / len(expected_returns)] * len(expected_returns))
+    
+    result = minimize(objective_function, initial_guess, method='SLSQP', constraints=constraints, bounds=bounds)
+    
+    if result.success:
+        risk_values.append(portfolio_risk(result.x, variance_covariance_matrix))
+        return_values.append(target_return)
+
+# Plotting the efficient frontier
+plt.figure(figsize=(10, 6))
+plt.plot(risk_values, return_values, 'r--', label='Efficient Frontier')
+for i in range(len(expected_returns)):
+    plt.scatter(std_devs[i], expected_returns[i], label=f'Asset {i+1}', zorder=5)
+
+# Plotting the two optimal portfolios given by the two managers
+for weights in optimal_weights:
+    r = portfolio_return(weights, expected_returns)
+    risk = portfolio_risk(weights, variance_covariance_matrix)
+    plt.scatter(risk, r, s=100)  # Mark the optimal portfolios with larger dots
+
+# Generating a new efficient frontier based on the two optimal portfolios
+# Treat these two portfolios as the only investments available and mix them in various proportions
+portfolio_combinations = np.linspace(-1000, 1000, 1000000)  # Mixing ratio
+new_risk_values = []
+new_return_values = []
+
+for mix_ratio in portfolio_combinations:
+    weights_combined = mix_ratio * optimal_weights[0] + (1 - mix_ratio) * optimal_weights[1]
+    combined_return = portfolio_return(weights_combined, expected_returns)
+    combined_risk = portfolio_risk(weights_combined, variance_covariance_matrix)
+    new_risk_values.append(combined_risk)
+    new_return_values.append(combined_return)
+
+plt.plot(new_risk_values, new_return_values, 'b-', label='New Efficient Frontier (Manager Portfolios)')
+
+plt.grid()
+plt.xlabel('Risk (Standard Deviation)')
+plt.ylabel('Expected Return')
+plt.xlim(0, 0.4)
+plt.ylim(0, 0.4)
+plt.title('Efficient Frontier')
+plt.legend()
+plt.show()
